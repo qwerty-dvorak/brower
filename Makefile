@@ -83,6 +83,167 @@ install-desktop: $(TARGET)
 	xdg-settings set default-url-scheme-handler https $(NAME).desktop || true
 	@echo "Installation complete."
 
+# Windows installation target
+install-windows: $(TARGET)
+	@echo "Installing Firefox Profile Chooser on Windows..."
+	@INSTALL_DIR="$(CURDIR)/$(BUILD_DIR)"; \
+	INSTALL_DIR_WIN=$$(echo $$INSTALL_DIR | sed 's|/|\\|g'); \
+	EXE_PATH="$$INSTALL_DIR_WIN\\$(EXECUTABLE)"; \
+	echo "Windows Registry Editor Version 5.00" > install-handler.reg; \
+	echo "" >> install-handler.reg; \
+	echo "[HKEY_CURRENT_USER\\Software\\Classes\\FirefoxProfileChooser]" >> install-handler.reg; \
+	echo "@=\"URL:Firefox Profile Chooser Protocol\"" >> install-handler.reg; \
+	echo "\"URL Protocol\"=\"\"" >> install-handler.reg; \
+	echo "" >> install-handler.reg; \
+	echo "[HKEY_CURRENT_USER\\Software\\Classes\\FirefoxProfileChooser\\DefaultIcon]" >> install-handler.reg; \
+	echo "@=\"$$EXE_PATH,0\"" >> install-handler.reg; \
+	echo "" >> install-handler.reg; \
+	echo "[HKEY_CURRENT_USER\\Software\\Classes\\FirefoxProfileChooser\\shell\\open\\command]" >> install-handler.reg; \
+	echo "@=\"\\\"$$EXE_PATH\\\" \\\"%1\\\"\"" >> install-handler.reg; \
+	echo "" >> install-handler.reg; \
+	echo "[HKEY_CURRENT_USER\\Software\\RegisteredApplications]" >> install-handler.reg; \
+	echo "\"FirefoxProfileChooser\"=\"Software\\\\FirefoxProfileChooser\\\\Capabilities\"" >> install-handler.reg; \
+	echo "" >> install-handler.reg; \
+	echo "[HKEY_CURRENT_USER\\Software\\FirefoxProfileChooser\\Capabilities]" >> install-handler.reg; \
+	echo "\"ApplicationName\"=\"Firefox Profile Chooser\"" >> install-handler.reg; \
+	echo "\"ApplicationDescription\"=\"Choose Firefox profile for links\"" >> install-handler.reg; \
+	echo "" >> install-handler.reg; \
+	echo "[HKEY_CURRENT_USER\\Software\\FirefoxProfileChooser\\Capabilities\\URLAssociations]" >> install-handler.reg; \
+	echo "\"http\"=\"FirefoxProfileChooser\"" >> install-handler.reg; \
+	echo "\"https\"=\"FirefoxProfileChooser\"" >> install-handler.reg; \
+	echo "" >> install-handler.reg; \
+	echo "Registry file created: install-handler.reg"; \
+	echo "Applying registry changes..."; \
+	regedit.exe //S install-handler.reg 2>/dev/null || reg import install-handler.reg; \
+	echo "Registry updated successfully."; \
+	echo ""; \
+	echo "Creating PowerShell script to set as default browser..."; \
+	echo '$$appName = "FirefoxProfileChooser"' > set-default.ps1; \
+	echo '$$protocols = @("http", "https")' >> set-default.ps1; \
+	echo 'Add-Type -AssemblyName System.Runtime.WindowsRuntime' >> set-default.ps1; \
+	echo '$$asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $$_.Name -eq "AsTask" -and $$_.GetParameters().Count -eq 1 -and $$_.GetParameters()[0].ParameterType.Name -eq "IAsyncOperation``1" })[0]' >> set-default.ps1; \
+	echo 'Function Await($$WinRtTask) {' >> set-default.ps1; \
+	echo '    $$asTask = $$asTaskGeneric.MakeGenericMethod($$WinRtTask.GetType().GenericTypeArguments)' >> set-default.ps1; \
+	echo '    $$netTask = $$asTask.Invoke($$null, @($$WinRtTask))' >> set-default.ps1; \
+	echo '    $$netTask.Wait(-1) | Out-Null' >> set-default.ps1; \
+	echo '}' >> set-default.ps1; \
+	echo 'foreach ($$protocol in $$protocols) {' >> set-default.ps1; \
+	echo '    try {' >> set-default.ps1; \
+	echo '        [Windows.System.Launcher, Windows.System, ContentType = WindowsRuntime] | Out-Null' >> set-default.ps1; \
+	echo '        $$uri = New-Object System.Uri "$$protocol`://test.com"' >> set-default.ps1; \
+	echo '        $$operation = [Windows.System.Launcher]::LaunchUriAsync($$uri)' >> set-default.ps1; \
+	echo '        Await $$operation' >> set-default.ps1; \
+	echo '        Write-Host "Set $$protocol protocol handler"' >> set-default.ps1; \
+	echo '    } catch {' >> set-default.ps1; \
+	echo '        Write-Host "Could not set $$protocol programmatically: $$_"' >> set-default.ps1; \
+	echo '    }' >> set-default.ps1; \
+	echo '}' >> set-default.ps1; \
+	echo 'Write-Host ""' >> set-default.ps1; \
+	echo 'Write-Host "Firefox Profile Chooser registered. To set as default:"' >> set-default.ps1; \
+	echo 'Write-Host "1. Open Settings > Apps > Default apps"' >> set-default.ps1; \
+	echo 'Write-Host "2. Search for \"Firefox Profile Chooser\""' >> set-default.ps1; \
+	echo 'Write-Host "3. Click it and set as default for HTTP and HTTPS"' >> set-default.ps1; \
+	echo 'Write-Host ""' >> set-default.ps1; \
+	echo 'Write-Host "Or run: start ms-settings:defaultapps"' >> set-default.ps1; \
+	echo "PowerShell script created: set-default.ps1"; \
+	echo ""; \
+	echo "Running PowerShell script to complete setup..."; \
+	powershell.exe -ExecutionPolicy Bypass -File set-default.ps1 2>/dev/null || echo "Note: Run set-default.ps1 manually if needed"; \
+	echo ""; \
+	echo "Installation complete!"; \
+	echo "Opening Windows Settings to set as default browser..."; \
+	cmd.exe //C start ms-settings:defaultapps 2>/dev/null || echo "Please manually set default browser in Windows Settings"
+
+# macOS installation target
+install-macos: $(TARGET)
+	@echo "Installing Firefox Profile Chooser on macOS..."
+	@APP_NAME="FirefoxProfileChooser"; \
+	APP_BUNDLE="$(BUILD_DIR)/$$APP_NAME.app"; \
+	CONTENTS_DIR="$$APP_BUNDLE/Contents"; \
+	MACOS_DIR="$$CONTENTS_DIR/MacOS"; \
+	RESOURCES_DIR="$$CONTENTS_DIR/Resources"; \
+	echo "Creating application bundle structure..."; \
+	mkdir -p "$$MACOS_DIR"; \
+	mkdir -p "$$RESOURCES_DIR"; \
+	echo "Copying executable to bundle..."; \
+	cp "$(TARGET)" "$$MACOS_DIR/$$APP_NAME"; \
+	chmod +x "$$MACOS_DIR/$$APP_NAME"; \
+	echo "Creating Info.plist..."; \
+	echo '<?xml version="1.0" encoding="UTF-8"?>' > "$$CONTENTS_DIR/Info.plist"; \
+	echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '<plist version="1.0">' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '<dict>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <key>CFBundleDevelopmentRegion</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <string>en</string>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <key>CFBundleExecutable</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo "    <string>$$APP_NAME</string>" >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <key>CFBundleIdentifier</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <string>com.firefoxprofilechooser.app</string>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <key>CFBundleInfoDictionaryVersion</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <string>6.0</string>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <key>CFBundleName</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <string>Firefox Profile Chooser</string>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <key>CFBundleDisplayName</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <string>Firefox Profile Chooser</string>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <key>CFBundlePackageType</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <string>APPL</string>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <key>CFBundleShortVersionString</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <string>1.0</string>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <key>CFBundleVersion</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <string>1</string>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <key>LSMinimumSystemVersion</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <string>10.13</string>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <key>NSHighResolutionCapable</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <true/>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <key>CFBundleURLTypes</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    <array>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '        <dict>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '            <key>CFBundleURLName</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '            <string>Web URL</string>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '            <key>CFBundleURLSchemes</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '            <array>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '                <string>http</string>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '                <string>https</string>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '            </array>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '            <key>CFBundleTypeRole</key>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '            <string>Viewer</string>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '        </dict>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '    </array>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '</dict>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo '</plist>' >> "$$CONTENTS_DIR/Info.plist"; \
+	echo "Info.plist created successfully."; \
+	echo ""; \
+	echo "Installing application bundle to /Applications..."; \
+	if [ -d "/Applications/$$APP_NAME.app" ]; then \
+		echo "Removing existing application..."; \
+		rm -rf "/Applications/$$APP_NAME.app"; \
+	fi; \
+	cp -R "$$APP_BUNDLE" /Applications/; \
+	echo "Application installed to /Applications/$$APP_NAME.app"; \
+	echo ""; \
+	echo "Registering application with Launch Services..."; \
+	/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "/Applications/$$APP_NAME.app"; \
+	echo ""; \
+	echo "Creating AppleScript to set as default browser..."; \
+	echo 'tell application "System Events"' > set-default-browser.scpt; \
+	echo '    tell application process "System Preferences"' >> set-default-browser.scpt; \
+	echo '        activate' >> set-default-browser.scpt; \
+	echo '    end tell' >> set-default-browser.scpt; \
+	echo 'end tell' >> set-default-browser.scpt; \
+	echo 'delay 1' >> set-default-browser.scpt; \
+	echo 'do shell script "open x-apple.systempreferences:com.apple.preference.general"' >> set-default-browser.scpt; \
+	echo "AppleScript created: set-default-browser.scpt"; \
+	echo ""; \
+	echo "Installation complete!"; \
+	echo ""; \
+	echo "To set Firefox Profile Chooser as your default browser:"; \
+	echo "1. Go to System Settings > Desktop & Dock"; \
+	echo "2. Scroll to 'Default web browser'"; \
+	echo "3. Select 'Firefox Profile Chooser' from the dropdown"; \
+	echo ""; \
+	echo "Or run: open x-apple.systempreferences:com.apple.preference.general"; \
+	open x-apple.systempreferences:com.apple.preference.general 2>/dev/null || echo ""
+
 # ---- Dependency checks and helper targets ----------------------------------
 .PHONY: check-deps check-linux-deps check-windows-deps check-macos-deps build-windows build-macos native-macos native-windows check-native-macos-deps check-native-windows-deps
 
@@ -150,6 +311,9 @@ check-native-macos-deps:
 native-macos: check-native-macos-deps
 	@echo "Building natively on macOS..."
 	@PKG_CONFIG_PATH=$$(brew --prefix qt@6 2>/dev/null || echo "")/lib/pkgconfig CFLAGS="$(CFLAGS) -D__APPLE__ -D__MACH__" $(MAKE) all
+	@echo ""
+	@echo "Build complete. To install and register as default browser, run:"
+	@echo "  make install-macos"
 
 check-native-windows-deps:
 	@echo "Checking native Windows Qt6 (MSYS2/MinGW64 or Visual Studio)..."
@@ -166,6 +330,9 @@ check-native-windows-deps:
 native-windows: check-native-windows-deps
 	@echo "Building natively on Windows (MSYS2/mingw64 recommended)..."
 	@CFLAGS="$(CFLAGS) -D_WIN32 -DWIN32 -D_WINDOWS" EXECUTABLE="firefox-profile-chooser.exe" $(MAKE) all
+	@echo ""
+	@echo "Build complete. To install and register as default browser, run:"
+	@echo "  make install-windows"
 # -----------------------------------------------------------------------------
 
 clean:
@@ -173,4 +340,4 @@ clean:
 	rm -rf $(BUILD_DIR)
 	@echo "Clean complete."
 
-.PHONY: all clean install-desktop
+.PHONY: all clean install-desktop install-windows install-macos

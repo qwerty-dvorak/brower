@@ -39,8 +39,9 @@ COMPILER := $(MXE_CC)
 # Try to query the cross pkg-config if available
 QT_CFLAGS := $(shell command -v x86_64-w64-mingw32.static-pkg-config >/dev/null 2>&1 && x86_64-w64-mingw32.static-pkg-config --cflags Qt6Widgets || echo)
 QT_LDFLAGS := $(shell command -v x86_64-w64-mingw32.static-pkg-config >/dev/null 2>&1 && x86_64-w64-mingw32.static-pkg-config --libs Qt6Widgets || echo)
-CFLAGS := -Wall -Wextra -std=c++17 -g -fPIC $(QT_CFLAGS)
+CFLAGS := -Wall -Wextra -std=c++17 -g -fPIC -D_WIN32 -DWIN32 -D_WINDOWS $(QT_CFLAGS)
 LDFLAGS := -static $(QT_LDFLAGS)
+EXECUTABLE := firefox-profile-chooser.exe
 endif
 
 ifeq ($(MACOS),1)
@@ -53,8 +54,9 @@ COMPILER := $(OSXCROSS)/target/bin/o64-clang
 # Cross-building Qt apps for macOS is non-trivial. Leave Qt flags empty and require the user to provide suitable Qt for macOS or build on macOS.
 QT_CFLAGS :=
 QT_LDFLAGS :=
-CFLAGS := -Wall -Wextra -std=c++17 -g -fPIC $(QT_CFLAGS)
+CFLAGS := -Wall -Wextra -std=c++17 -g -fPIC -D__APPLE__ -D__MACH__ $(QT_CFLAGS)
 LDFLAGS := $(QT_LDFLAGS)
+EXECUTABLE := firefox-profile-chooser.app
 endif
 # -----------------------------------------------------------------------------
 
@@ -147,7 +149,7 @@ check-native-macos-deps:
 
 native-macos: check-native-macos-deps
 	@echo "Building natively on macOS..."
-	@PKG_CONFIG_PATH=$$(brew --prefix qt@6 2>/dev/null || echo "")/lib/pkgconfig $(MAKE) all
+	@PKG_CONFIG_PATH=$$(brew --prefix qt@6 2>/dev/null || echo "")/lib/pkgconfig CFLAGS="$(CFLAGS) -D__APPLE__ -D__MACH__" $(MAKE) all
 
 check-native-windows-deps:
 	@echo "Checking native Windows Qt6 (MSYS2/MinGW64 or Visual Studio)..."
@@ -163,7 +165,7 @@ check-native-windows-deps:
 
 native-windows: check-native-windows-deps
 	@echo "Building natively on Windows (MSYS2/mingw64 recommended)..."
-	@$(MAKE) all
+	@CFLAGS="$(CFLAGS) -D_WIN32 -DWIN32 -D_WINDOWS" EXECUTABLE="firefox-profile-chooser.exe" $(MAKE) all
 # -----------------------------------------------------------------------------
 
 clean:

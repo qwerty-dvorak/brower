@@ -8,12 +8,13 @@ COMPILER = g++
 # This adds include paths, etc.
 QT_CFLAGS = $(shell pkg-config --cflags Qt6Widgets)
 # Add -fPIC so object files are position-independent and avoid copy-relocation linker errors
-CFLAGS = -Wall -Wextra -std=c++17 -g -fPIC $(QT_CFLAGS)
+# Use -Os for size optimization, -DNDEBUG to remove debug assertions
+CFLAGS = -Wall -Wextra -std=c++17 -Os -fPIC -DNDEBUG $(QT_CFLAGS)
 
 # Use pkg-config to get the necessary linker flags for Qt6
 # This adds library paths and links the required libraries (-lQt6Widgets, etc.)
 QT_LDFLAGS = $(shell pkg-config --libs Qt6Widgets)
-LDFLAGS = -pie $(QT_LDFLAGS)
+LDFLAGS = -pie -s -Wl,--gc-sections $(QT_LDFLAGS)
 
 SRCDIR = gui
 SOURCES = $(wildcard $(SRCDIR)/*.cpp)

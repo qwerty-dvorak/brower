@@ -36,11 +36,42 @@ ifeq ($(MXE_CC),)
 $(error MXE toolchain not found. Run 'make check-windows-deps' for instructions.)
 endif
 COMPILER := $(MXE_CC)
-# Try to query the cross pkg-config if available
-QT_CFLAGS := $(shell command -v x86_64-w64-mingw32.static-pkg-config >/dev/null 2>&1 && x86_64-w64-mingw32.static-pkg-config --cflags Qt6Widgets || echo)
-QT_LDFLAGS := $(shell command -v x86_64-w64-mingw32.static-pkg-config >/dev/null 2>&1 && x86_64-w64-mingw32.static-pkg-config --libs Qt6Widgets || echo)
-CFLAGS := -Wall -Wextra -std=c++17 -g -fPIC -D_WIN32 -DWIN32 -D_WINDOWS $(QT_CFLAGS)
-LDFLAGS := -static $(QT_LDFLAGS)
+
+# first try the cross-pkg-config
+QT_CFLAGS := $(shell x86_64-w64-mingw32.static-pkg-config --cflags Qt6Widgets 2>/dev/null || echo)
+QT_LDFLAGS := $(shell x86_64-w64-mingw32.static-pkg-config --libs  Qt6Widgets 2>/dev/null || echo)
+
+# if that failed, pull headers and libs straight out of MXE/usr
+ifeq ($(strip $(QT_CFLAGS)),)
+    MXE_PREFIX := $(shell dirname $(dir $(MXE_CC)))
+    MXE_TRIPLET := $(patsubst %-g++,%,$(notdir $(MXE_CC)))
+    QT_CFLAGS := \
+      -I$(MXE_PREFIX)/$(MXE_TRIPLET)/qt6/include \
+      -I$(MXE_PREFIX)/$(MXE_TRIPLET)/qt6/include/QtWidgets \
+      -I$(MXE_PREFIX)/$(MXE_TRIPLET)/qt6/include/QtGui \
+      -I$(MXE_PREFIX)/$(MXE_TRIPLET)/qt6/include/QtCore
+endif
+ifeq ($(strip $(QT_LDFLAGS)),)
+    MXE_PREFIX := $(shell dirname $(dir $(MXE_CC)))
+    MXE_TRIPLET := $(patsubst %-g++,%,$(notdir $(MXE_CC)))
+    QT_LDFLAGS := \
+      -L$(MXE_PREFIX)/$(MXE_TRIPLET)/qt6/lib \
+      -lQt6Widgets -lQt6Gui -lQt6Core \
+      -lz -lpng -lharfbuzz -lfreetype -lbz2 -lbrotlidec -lbrotlicommon \
+      -lpcre2-16 -lzstd \
+      -lopengl32 -lgdi32 -luser32 -lshell32 -luuid -lole32 -limm32 -lwinmm \
+      -ldwmapi -luxtheme -lversion -lshlwapi -ldxgi -ld3d11 -ld3d12 \
+      -ldwrite -lws2_32 -lauthz -luserenv -lnetapi32 -lntdll -lsynchronization
+    # Add Qt platform plugin and its dependencies
+    QT_LDFLAGS += \
+      $(MXE_PREFIX)/$(MXE_TRIPLET)/qt6/plugins/platforms/libqwindows.a \
+      -lQt6OpenGL -loleaut32 -lsetupapi -lwinspool -lwtsapi32 -lshcore -lcomdlg32 -ld3d9 \
+      -lmpr -lruntimeobject -ldxguid -lglib-2.0 -lintl -liconv -latomic -ld2d1 \
+      $(MXE_PREFIX)/$(MXE_TRIPLET)/qt6/plugins/styles/libqmodernwindowsstyle.a
+endif
+
+CFLAGS   := -Wall -Wextra -std=c++17 -Os -fPIC -DNDEBUG -D_WIN32 -DWIN32 -D_WINDOWS $(QT_CFLAGS)
+LDFLAGS  := -static -static-libgcc -static-libstdc++ -s -Wl,--gc-sections $(QT_LDFLAGS) -lQt6EntryPoint
 EXECUTABLE := firefox-profile-chooser.exe
 endif
 
@@ -248,7 +279,7 @@ install-macos: $(TARGET)
 .PHONY: check-deps check-linux-deps check-windows-deps check-macos-deps build-windows build-macos native-macos native-windows check-native-macos-deps check-native-windows-deps
 
 check-deps: check-linux-deps check-windows-deps check-macos-deps
-
+	ls -la /home/afish/repos/mxe/usr/bin/x86_64-w64-mingw32*g++
 check-linux-deps:
 	@echo "Checking Linux Qt6 (Qt6Widgets) dependency..."
 	@if pkg-config --exists Qt6Widgets 2>/dev/null; then \
@@ -272,7 +303,7 @@ check-windows-deps:
 		echo "     sudo apt update && sudo apt install build-essential git python3 gcc g++ make ccache"; \
 		echo "  2) Clone MXE and build Qt (may take long):"; \
 		echo "     git clone https://github.com/mxe/mxe.git /opt/mxe"; \
-		echo "     cd /opt/mxe && make gcc qtbase qtchooser -j\$$(nproc)"; \
+		echo "     cd /opt/mxe && make MXE_TARGETS='x86_64-w64-mingw32.static' gcc qt6-qtbase -j\$$(nproc)"; \
 		echo "  3) Add MXE compilers to PATH, e.g. export PATH=/opt/mxe/usr/bin:\$$PATH"; \
 		echo "When MXE is installed, run: make WINDOWS=1"; \
 	fi
@@ -316,20 +347,36 @@ native-macos: check-native-macos-deps
 	@echo "  make install-macos"
 
 check-native-windows-deps:
-	@echo "Checking native Windows Qt6 (MSYS2/MinGW64 or Visual Studio)..."
+	@echo "Checking native Windows Qt6..."
+	@if [ "$$(uname -s | grep -i 'MINGW\|MSYS\|CYGWIN')" = "" ]; then \
+		echo "Not running on Windows/MSYS2. Run this target on Windows."; exit 1; \
+	fi
 	@if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists Qt6Widgets 2>/dev/null; then \
-		echo "Qt6Widgets available via pkg-config (MSYS2/MinGW)."; \
+		echo "Qt6Widgets available via pkg-config."; \
 	else \
-		echo "Qt6 not found via pkg-config. On MSYS2 (recommended) run:"; \
-		echo "  pacman -S mingw-w64-x86_64-qt6 mingw-w64-x86_64-toolchain pkg-config"; \
-		echo "Then open the mingw64 shell and run: make"; \
-		echo "Alternatively, use the Qt Online Installer + Visual Studio and build from Qt Creator or set up MSVC toolchain manually."; \
+		echo "Qt6 not found. Choose one of these installation methods:"; \
+		echo ""; \
+		echo "Option 1 - MSYS2 (Recommended for Make builds):"; \
+		echo "  1. Install MSYS2 from https://www.msys2.org/"; \
+		echo "  2. Open MSYS2 MinGW64 shell and run:"; \
+		echo "     pacman -S mingw-w64-x86_64-qt6-base mingw-w64-x86_64-toolchain make pkg-config"; \
+		echo "  3. Then run: make native-windows"; \
+		echo ""; \
+		echo "Option 2 - Qt Online Installer + MSVC:"; \
+		echo "  1. Download Qt installer from https://www.qt.io/download-qt-installer"; \
+		echo "  2. Install Qt 6 with MSVC 2019 64-bit compiler"; \
+		echo "  3. Build using Qt Creator or qmake/cmake"; \
+		echo ""; \
+		echo "Option 3 - vcpkg:"; \
+		echo "  1. Install vcpkg from https://github.com/microsoft/vcpkg"; \
+		echo "  2. Run: vcpkg install qt6-base:x64-windows"; \
+		echo "  3. Set up toolchain integration as per vcpkg docs"; \
 		exit 1; \
 	fi
 
 native-windows: check-native-windows-deps
-	@echo "Building natively on Windows (MSYS2/mingw64 recommended)..."
-	@CFLAGS="$(CFLAGS) -D_WIN32 -DWIN32 -D_WINDOWS" EXECUTABLE="firefox-profile-chooser.exe" $(MAKE) all
+	@echo "Building natively on Windows..."
+	@$(MAKE) CFLAGS="$(CFLAGS) -D_WIN32 -DWIN32 -D_WINDOWS" EXECUTABLE="firefox-profile-chooser.exe" all
 	@echo ""
 	@echo "Build complete. To install and register as default browser, run:"
 	@echo "  make install-windows"
